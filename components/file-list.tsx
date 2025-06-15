@@ -10,8 +10,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch"
 import { useToast } from "@/hooks/use-toast"
 import { apiClient } from "@/lib/api"
-import { Clock, Download, Eye, Loader2, Lock, MapPin, Share, Trash2 } from "lucide-react"
+import { Download, Eye, Key, Loader2, Lock, Share, Shield, Trash2, Unlock } from "lucide-react"
 import { useEffect, useState } from "react"
+import { FileEncryption } from "./file-encryption"
 
 interface FileItem {
   id: string
@@ -52,6 +53,7 @@ export function FileList({ refreshTrigger, onFileDeleted, searchQuery }: FileLis
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
   const [sharingFile, setSharingFile] = useState<FileItem | null>(null)
+  const [encryptionFile, setEncryptionFile] = useState<FileItem | null>(null)
   const [shareOptions, setShareOptions] = useState<ShareOptions>({
     recipientEmail: "",
     permissions: "view",
@@ -97,26 +99,48 @@ export function FileList({ refreshTrigger, onFileDeleted, searchQuery }: FileLis
     try {
       setDownloadingId(file.id)
 
-      // Check if file requires password
+      // For encrypted files, we need to prompt for password
+      let password = ""
+      if (file.encrypted) {
+        const promptResult = prompt("Enter decryption password:")
+        if (!promptResult) {
+          setDownloadingId(null)
+          return
+        }
+        password = promptResult
+      }
+
+      // Check if file requires additional password protection
       if (file.accessControl?.passwordProtected) {
-        const password = prompt("Enter file password:")
-        if (!password) {
+        const accessPassword = prompt("Enter file access password:")
+        if (!accessPassword) {
           setDownloadingId(null)
           return
         }
       }
 
-      const blob = await apiClient.downloadFile(file.id)
+      const url = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/files/${file.id}/download?password=${encodeURIComponent(password)}`
+      
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+        }
+      })
 
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.style.display = "none"
-      a.href = url
-      a.download = file.name
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
-      document.body.removeChild(a)
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Download failed')
+      }
+
+      const blob = await response.blob()
+      const downloadUrl = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = downloadUrl
+      link.download = file.name
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(downloadUrl)
 
       toast({
         title: "Download successful",
@@ -201,13 +225,58 @@ export function FileList({ refreshTrigger, onFileDeleted, searchQuery }: FileLis
     if (!canPreview) {
       toast({
         title: "Preview not available",
-        description: "This file type cannot be previewed",
+        description: "This file type does not support preview",
         variant: "destructive",
       })
       return
     }
 
-    setPreviewFile(file)
+    try {
+      // For encrypted files, we need to prompt for password
+      let password = ""
+      if (file.encrypted) {
+        const promptResult = prompt("Enter decryption password:")
+        if (!promptResult) {
+          return
+        }
+        password = promptResult
+      }
+
+      const url = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/files/${file.id}/preview?password=${encodeURIComponent(password)}`
+      
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+        }
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Preview failed')
+      }
+
+      const blob = await response.blob()
+      const previewUrl = window.URL.createObjectURL(blob)
+      
+      // Open in new tab for preview
+      window.open(previewUrl, '_blank')
+      
+      toast({
+        title: "Preview opened",
+        description: "File preview opened in new tab",
+      })
+    } catch (error: any) {
+      console.error("Preview failed:", error)
+      toast({
+        title: "Preview failed",
+        description: error.message || "Failed to preview file",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleEncryptionStatusChange = () => {
+    fetchFiles() // Refresh the file list to update encryption status
   }
 
   const formatFileSize = (bytes: number) => {
@@ -226,229 +295,249 @@ export function FileList({ refreshTrigger, onFileDeleted, searchQuery }: FileLis
     if (type.startsWith("image/")) return "🖼️"
     if (type.startsWith("video/")) return "🎥"
     if (type.startsWith("audio/")) return "🎵"
-    if (type.includes("pdf")) return "📄"
-    if (type.includes("word") || type.includes("document")) return "📝"
-    if (type.includes("spreadsheet") || type.includes("excel")) return "📊"
+    if (type === "application/pdf") return "📄"
+    if (type.includes("document")) return "📝"
+    if (type.includes("spreadsheet")) return "📊"
+    if (type.includes("presentation")) return "📽️"
     if (type.includes("zip") || type.includes("rar")) return "📦"
-    return "📄"
+    return "📁"
+  }
+
+  const getEncryptionBadge = (encrypted: boolean) => {
+    if (encrypted) {
+      return (
+        <Badge variant="default" className="bg-green-100 text-green-800 border-green-200">
+          <Lock className="h-3 w-3 mr-1" />
+          Encrypted
+        </Badge>
+      )
+    }
+    return (
+      <Badge variant="secondary" className="bg-orange-100 text-orange-800 border-orange-200">
+        <Unlock className="h-3 w-3 mr-1" />
+        Not Encrypted
+      </Badge>
+    )
   }
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-8">
-        <Loader2 className="h-6 w-6 animate-spin" />
+      <div className="flex items-center justify-center p-8">
+        <Loader2 className="h-8 w-8 animate-spin" />
+        <span className="ml-2">Loading files...</span>
       </div>
     )
   }
 
   if (files.length === 0) {
     return (
-      <div className="text-center py-8 text-gray-500">
-        {searchQuery ? "No files found matching your search" : "No files uploaded yet"}
+      <div className="text-center p-8">
+        <Shield className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+        <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">No files found</h3>
+        <p className="text-gray-500 dark:text-gray-400">
+          {searchQuery ? "No files match your search criteria." : "Upload your first file to get started."}
+        </p>
       </div>
     )
   }
 
   return (
-    <>
-      <div className="space-y-3 max-h-96 overflow-y-auto">
-        {files.map((file) => (
-          <Card key={file.id}>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-3 flex-1 min-w-0">
-                  <div className="text-2xl">{getFileIcon(file.type)}</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center space-x-2">
-                      <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{file.name}</p>
-                      {file.encrypted && (
-                        <span title="Encrypted">
-                          <Lock className="h-3 w-3 text-green-600" />
-                        </span>
-                      )}
-                      {file.shared && (
-                        <span title="Shared">
-                          <Share className="h-3 w-3 text-blue-600" />
-                        </span>
-                      )}
-                      {file.accessControl?.timeRestriction && (
-                        <span title="Time Restricted">
-                          <Clock className="h-3 w-3 text-orange-600" />
-                        </span>
-                      )}
-                      {file.accessControl?.locationRestriction && (
-                        <span title="Location Restricted">
-                          <MapPin className="h-3 w-3 text-purple-600" />
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center space-x-2 mt-1">
-                      <Badge variant="secondary" className="text-xs">
-                        {formatFileSize(file.size)}
+    <div className="space-y-4">
+      {files.map((file) => (
+        <Card key={file.id} className="hover:shadow-md transition-shadow">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-4 flex-1 min-w-0">
+                <div className="text-2xl">{getFileIcon(file.type)}</div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <h3 className="font-medium truncate">{file.name}</h3>
+                    {getEncryptionBadge(file.encrypted)}
+                    {file.shared && (
+                      <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                        <Share className="h-3 w-3 mr-1" />
+                        Shared
                       </Badge>
-                      <span className="text-xs text-gray-500">{formatDate(file.uploadedAt)}</span>
-                      <span className="text-xs text-gray-500">{file.downloadCount} downloads</span>
-                      {file.lastAccessed && (
-                        <span className="text-xs text-gray-500">Last accessed: {formatDate(file.lastAccessed)}</span>
-                      )}
-                    </div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-4 text-sm text-gray-500">
+                    <span>{formatFileSize(file.size)}</span>
+                    <span>•</span>
+                    <span>Uploaded {formatDate(file.uploadedAt)}</span>
+                    {file.downloadCount > 0 && (
+                      <>
+                        <span>•</span>
+                        <span>{file.downloadCount} downloads</span>
+                      </>
+                    )}
                   </div>
                 </div>
-                <div className="flex items-center space-x-2 flex-shrink-0">
-                  <Button size="sm" variant="outline" onClick={() => handlePreview(file)} title="Preview file">
-                    <Eye className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleDownload(file)}
-                    disabled={downloadingId === file.id}
-                    title="Download file"
-                  >
-                    {downloadingId === file.id ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Download className="h-4 w-4" />
-                    )}
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => setSharingFile(file)} title="Share file">
-                    <Share className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleDelete(file.id, file.name)}
-                    disabled={deletingId === file.id}
-                    title="Delete file"
-                  >
-                    {deletingId === file.id ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Trash2 className="h-4 w-4" />
-                    )}
-                  </Button>
-                </div>
               </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+              <div className="flex items-center space-x-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handlePreview(file)}
+                  disabled={downloadingId === file.id}
+                >
+                  <Eye className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleDownload(file)}
+                  disabled={downloadingId === file.id}
+                >
+                  {downloadingId === file.id ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Download className="h-4 w-4" />
+                  )}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setEncryptionFile(file)}
+                >
+                  <Key className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSharingFile(file)}
+                >
+                  <Share className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleDelete(file.id, file.name)}
+                  disabled={deletingId === file.id}
+                >
+                  {deletingId === file.id ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+
+      {/* Encryption Dialog */}
+      <Dialog open={!!encryptionFile} onOpenChange={() => setEncryptionFile(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>File Encryption</DialogTitle>
+            <DialogDescription>
+              Manage encryption for your file
+            </DialogDescription>
+          </DialogHeader>
+          {encryptionFile && (
+            <FileEncryption
+              fileId={encryptionFile.id}
+              fileName={encryptionFile.name}
+              isEncrypted={encryptionFile.encrypted}
+              onStatusChange={handleEncryptionStatusChange}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Share Dialog */}
       <Dialog open={!!sharingFile} onOpenChange={() => setSharingFile(null)}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>Share File</DialogTitle>
-            <DialogDescription>Create a secure share link for "{sharingFile?.name}"</DialogDescription>
+            <DialogDescription>
+              Create a secure share link for {sharingFile?.name}
+            </DialogDescription>
           </DialogHeader>
-
           <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="recipientEmail">Recipient Email (Optional)</Label>
+            <div>
+              <Label htmlFor="recipient-email">Recipient Email</Label>
               <Input
-                id="recipientEmail"
+                id="recipient-email"
                 type="email"
-                placeholder="recipient@example.com"
+                placeholder="Enter recipient email"
                 value={shareOptions.recipientEmail}
-                onChange={(e) => setShareOptions((prev) => ({ ...prev, recipientEmail: e.target.value }))}
+                onChange={(e) => setShareOptions({ ...shareOptions, recipientEmail: e.target.value })}
               />
             </div>
-
-            <div className="space-y-2">
-              <Label>Permissions</Label>
+            <div>
+              <Label htmlFor="permissions">Permissions</Label>
               <Select
                 value={shareOptions.permissions}
-                onValueChange={(value: any) => setShareOptions((prev) => ({ ...prev, permissions: value }))}
+                onValueChange={(value: "view" | "download" | "edit") =>
+                  setShareOptions({ ...shareOptions, permissions: value })
+                }
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Select permissions" />
+                  <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="view">View Only</SelectItem>
-                  <SelectItem value="download">View & Download</SelectItem>
-                  <SelectItem value="edit">Full Access</SelectItem>
+                  <SelectItem value="download">Download</SelectItem>
+                  <SelectItem value="edit">Edit</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="expirationDate">Expiration Date (Optional)</Label>
+            <div>
+              <Label htmlFor="expiration">Expiration Date</Label>
               <Input
-                id="expirationDate"
+                id="expiration"
                 type="datetime-local"
                 value={shareOptions.expirationDate}
-                onChange={(e) => setShareOptions((prev) => ({ ...prev, expirationDate: e.target.value }))}
+                onChange={(e) => setShareOptions({ ...shareOptions, expirationDate: e.target.value })}
               />
             </div>
-
             <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label>Password Protection</Label>
-                <p className="text-sm text-gray-500">Require password to access</p>
+              <div>
+                <Label htmlFor="password-protection">Password Protection</Label>
+                <p className="text-sm text-gray-500">Require password to access shared file</p>
               </div>
               <Switch
+                id="password-protection"
                 checked={shareOptions.passwordProtected}
-                onCheckedChange={(checked) => setShareOptions((prev) => ({ ...prev, passwordProtected: checked }))}
+                onCheckedChange={(checked) =>
+                  setShareOptions({ ...shareOptions, passwordProtected: checked })
+                }
               />
             </div>
-
             {shareOptions.passwordProtected && (
-              <div className="space-y-2">
-                <Label htmlFor="sharePassword">Share Password</Label>
+              <div>
+                <Label htmlFor="share-password">Share Password</Label>
                 <Input
-                  id="sharePassword"
+                  id="share-password"
                   type="password"
-                  placeholder="Enter share password"
+                  placeholder="Enter password for shared file"
                   value={shareOptions.password}
-                  onChange={(e) => setShareOptions((prev) => ({ ...prev, password: e.target.value }))}
+                  onChange={(e) => setShareOptions({ ...shareOptions, password: e.target.value })}
                 />
               </div>
             )}
-
             <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label>Notify Recipient</Label>
-                <p className="text-sm text-gray-500">Send email notification</p>
+              <div>
+                <Label htmlFor="notify">Notify Recipient</Label>
+                <p className="text-sm text-gray-500">Send email notification to recipient</p>
               </div>
               <Switch
+                id="notify"
                 checked={shareOptions.notifyRecipient}
-                onCheckedChange={(checked) => setShareOptions((prev) => ({ ...prev, notifyRecipient: checked }))}
+                onCheckedChange={(checked) =>
+                  setShareOptions({ ...shareOptions, notifyRecipient: checked })
+                }
               />
             </div>
-
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setSharingFile(null)} className="flex-1">
-                Cancel
-              </Button>
-              <Button onClick={handleShare} className="flex-1">
-                Create Share Link
-              </Button>
-            </div>
+            <Button onClick={handleShare} className="w-full">
+              <Share className="mr-2 h-4 w-4" />
+              Create Share Link
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
-
-      {/* Preview Dialog */}
-      <Dialog open={!!previewFile} onOpenChange={() => setPreviewFile(null)}>
-        <DialogContent className="sm:max-w-4xl">
-          <DialogHeader>
-            <DialogTitle>File Preview</DialogTitle>
-            <DialogDescription>Preview of "{previewFile?.name}"</DialogDescription>
-          </DialogHeader>
-
-          <div className="max-h-96 overflow-auto">
-            {previewFile?.type.startsWith("image/") && (
-              <img src={`/api/files/${previewFile.id}/preview`} alt={previewFile.name} className="max-w-full h-auto" />
-            )}
-            {previewFile?.type === "application/pdf" && (
-              <iframe src={`/api/files/${previewFile.id}/preview`} className="w-full h-96" title={previewFile.name} />
-            )}
-            {previewFile?.type.startsWith("text/") && (
-              <pre className="whitespace-pre-wrap text-sm">Loading preview...</pre>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
-    </>
+    </div>
   )
 }
