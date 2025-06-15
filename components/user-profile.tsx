@@ -1,18 +1,18 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
-import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Badge } from "@/components/ui/badge"
-import { Loader2, Shield, Smartphone, Key, Download } from "lucide-react"
 import { useAuth } from "@/contexts/auth-context"
-import { apiClient } from "@/lib/api"
 import { useToast } from "@/hooks/use-toast"
+import { apiClient } from "@/lib/api"
+import { Download, Key, Loader2, Shield, Smartphone } from "lucide-react"
+import { useEffect, useState } from "react"
 
 interface UserSettings {
   twoFactorEnabled: boolean
@@ -310,7 +310,7 @@ export function UserProfile() {
               </div>
               <Switch
                 checked={settings.twoFactorEnabled}
-                onCheckedChange={(checked) => updateSettings({ twoFactorEnabled: checked })}
+                onCheckedChange={(checked: any) => updateSettings({ twoFactorEnabled: checked })}
               />
             </div>
 
@@ -321,7 +321,7 @@ export function UserProfile() {
               </div>
               <Switch
                 checked={settings.emailNotifications}
-                onCheckedChange={(checked) => updateSettings({ emailNotifications: checked })}
+                onCheckedChange={(checked: any) => updateSettings({ emailNotifications: checked })}
               />
             </div>
 
@@ -332,7 +332,7 @@ export function UserProfile() {
               </div>
               <Switch
                 checked={settings.securityAlerts}
-                onCheckedChange={(checked) => updateSettings({ securityAlerts: checked })}
+                onCheckedChange={(checked: any) => updateSettings({ securityAlerts: checked })}
               />
             </div>
 
