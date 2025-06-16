@@ -13,6 +13,7 @@ import { apiClient } from "@/lib/api"
 import { Download, Eye, Key, Loader2, Lock, Share, Shield, Trash2, Unlock } from "lucide-react"
 import { useEffect, useState } from "react"
 import { FileEncryption } from "./file-encryption"
+import { MFAVerification } from "./mfa-verification"
 
 interface FileItem {
   id: string
@@ -63,6 +64,12 @@ export function FileList({ refreshTrigger, onFileDeleted, searchQuery }: FileLis
     notifyRecipient: true,
   })
   const [previewFile, setPreviewFile] = useState<FileItem | null>(null)
+  const [mfaVerification, setMfaVerification] = useState<{
+    open: boolean
+    action: string
+    actionDescription: string
+    onVerified: () => void
+  } | null>(null)
   const { toast } = useToast()
 
   useEffect(() => {
@@ -129,6 +136,19 @@ export function FileList({ refreshTrigger, onFileDeleted, searchQuery }: FileLis
 
       if (!response.ok) {
         const errorData = await response.json()
+        
+        // Check if MFA is required
+        if (errorData.mfaRequired) {
+          setDownloadingId(null)
+          setMfaVerification({
+            open: true,
+            action: "file_download",
+            actionDescription: `Download "${file.name}"`,
+            onVerified: () => handleDownload(file)
+          })
+          return
+        }
+        
         throw new Error(errorData.error || 'Download failed')
       }
 
@@ -165,7 +185,20 @@ export function FileList({ refreshTrigger, onFileDeleted, searchQuery }: FileLis
 
     try {
       setDeletingId(fileId)
-      await apiClient.delete(`/files/${fileId}`)
+      const response = await apiClient.delete(`/files/${fileId}`)
+      
+      // Check if MFA is required
+      if (response.data?.mfaRequired) {
+        setDeletingId(null)
+        setMfaVerification({
+          open: true,
+          action: "file_delete",
+          actionDescription: `Delete "${fileName}"`,
+          onVerified: () => handleDelete(fileId, fileName)
+        })
+        return
+      }
+      
       setFiles(files.filter((f) => f.id !== fileId))
       onFileDeleted()
 
@@ -173,8 +206,21 @@ export function FileList({ refreshTrigger, onFileDeleted, searchQuery }: FileLis
         title: "File deleted",
         description: "File has been securely deleted",
       })
-    } catch (error) {
+    } catch (error: any) {
       console.error("Delete failed:", error)
+      
+      // Check if MFA is required
+      if (error.response?.data?.mfaRequired) {
+        setDeletingId(null)
+        setMfaVerification({
+          open: true,
+          action: "file_delete",
+          actionDescription: `Delete "${fileName}"`,
+          onVerified: () => handleDelete(fileId, fileName)
+        })
+        return
+      }
+      
       toast({
         title: "Delete failed",
         description: "Failed to delete file",
@@ -538,6 +584,24 @@ export function FileList({ refreshTrigger, onFileDeleted, searchQuery }: FileLis
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* MFA Verification Dialog */}
+      {mfaVerification && (
+        <MFAVerification
+          open={mfaVerification.open}
+          onOpenChange={(open) => {
+            if (!open) {
+              setMfaVerification(null)
+            }
+          }}
+          action={mfaVerification.action}
+          actionDescription={mfaVerification.actionDescription}
+          onVerified={() => {
+            mfaVerification.onVerified()
+            setMfaVerification(null)
+          }}
+        />
+      )}
     </div>
   )
 }

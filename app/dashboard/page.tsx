@@ -1,19 +1,20 @@
 "use client"
 
-import { useAuth } from "@/contexts/auth-context"
-import { useRouter } from "next/navigation"
-import { useEffect, useState } from "react"
+import { AccessControlPanel } from "@/components/access-control-panel"
+import { AuditLog } from "@/components/audit-log"
+import { FileList } from "@/components/file-list"
+import { FileSearch } from "@/components/file-search"
+import { FileUpload } from "@/components/file-upload"
+import { MFASetup } from "@/components/mfa-setup"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { FileUpload } from "@/components/file-upload"
-import { FileList } from "@/components/file-list"
-import { FileSearch } from "@/components/file-search"
-import { AccessControlPanel } from "@/components/access-control-panel"
-import { AuditLog } from "@/components/audit-log"
 import { UserProfile } from "@/components/user-profile"
-import { LogOut, Files, HardDrive, Clock, Shield, Activity } from "lucide-react"
+import { useAuth } from "@/contexts/auth-context"
 import { apiClient } from "@/lib/api"
+import { Activity, Clock, Files, HardDrive, LogOut, Shield } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { useEffect, useState } from "react"
 
 interface Stats {
   totalFiles: number
@@ -170,6 +171,7 @@ export default function DashboardPage() {
             <TabsTrigger value="access">Access Control</TabsTrigger>
             <TabsTrigger value="audit">Audit Log</TabsTrigger>
             <TabsTrigger value="profile">Profile</TabsTrigger>
+            <TabsTrigger value="mfa">MFA</TabsTrigger>
           </TabsList>
 
           <TabsContent value="files" className="space-y-6">
@@ -240,6 +242,18 @@ export default function DashboardPage() {
               </CardHeader>
               <CardContent>
                 <UserProfile />
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="mfa" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>MFA Setup</CardTitle>
+                <CardDescription>Set up Multi-Factor Authentication</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <MFASetup onStatusChange={refreshData} />
               </CardContent>
             </Card>
           </TabsContent>
