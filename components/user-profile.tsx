@@ -3,15 +3,14 @@
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useAuth } from "@/contexts/auth-context"
 import { useToast } from "@/hooks/use-toast"
 import { apiClient } from "@/lib/api"
-import { Download, Key, Loader2, Shield, Smartphone } from "lucide-react"
+import { Download, Key, Loader2, Shield, Smartphone, User } from "lucide-react"
 import { useEffect, useState } from "react"
 
 interface UserSettings {
@@ -45,6 +44,7 @@ export function UserProfile() {
   })
   const [devices, setDevices] = useState<any[]>([])
   const { toast } = useToast()
+  const [emailMfaEnabled, setEmailMfaEnabled] = useState(false)
 
   useEffect(() => {
     if (user) {
@@ -56,6 +56,7 @@ export function UserProfile() {
       })
       fetchSettings()
       fetchDevices()
+      setSettings(prev => ({ ...prev, twoFactorEnabled: !!user.user_metadata?.two_factor_enabled }))
     }
   }, [user])
 
@@ -187,6 +188,29 @@ export function UserProfile() {
     }
   }
 
+  const enableEmailMfa = async () => {
+    if (!user) return;
+    const res = await fetch("/api/auth/mfa/setup-email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: user.id }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      setEmailMfaEnabled(true);
+      toast({
+        title: "Email MFA enabled!",
+        description: "You'll be asked for a code on your next login.",
+      });
+    } else {
+      toast({
+        title: "Error",
+        description: data.error || "Failed to enable Email MFA",
+        variant: "destructive",
+      });
+    }
+  };
+
   return (
     <Tabs defaultValue="profile" className="space-y-6">
       <TabsList className="grid w-full grid-cols-4">
@@ -199,74 +223,58 @@ export function UserProfile() {
       <TabsContent value="profile" className="space-y-6">
         <Card>
           <CardHeader>
-            <CardTitle>Profile Information</CardTitle>
-            <CardDescription>Update your personal information</CardDescription>
+            <CardTitle className="flex items-center gap-2">
+              <User className="h-5 w-5" /> Profile Information
+            </CardTitle>
+            <CardDescription>Update your account profile information</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+          <CardContent>
+            <form onSubmit={updateProfile} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="fullName">Full Name</Label>
                 <Input
                   id="fullName"
                   value={profileData.fullName}
                   onChange={(e) => setProfileData({ ...profileData, fullName: e.target.value })}
+                  placeholder="John Doe"
                 />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
                 <Input
                   id="email"
-                  type="email"
                   value={profileData.email}
                   onChange={(e) => setProfileData({ ...profileData, email: e.target.value })}
+                  placeholder="john@example.com"
                 />
               </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="phone">Phone Number</Label>
-                <Input
-                  id="phone"
-                  value={profileData.phone}
-                  onChange={(e) => setProfileData({ ...profileData, phone: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="dateOfBirth">Date of Birth</Label>
-                <Input
-                  id="dateOfBirth"
-                  type="date"
-                  value={profileData.dateOfBirth}
-                  onChange={(e) => setProfileData({ ...profileData, dateOfBirth: e.target.value })}
-                />
-              </div>
-            </div>
-
-            <Button onClick={updateProfile} disabled={loading}>
-              {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Update Profile
-            </Button>
+              <Button type="submit" disabled={loading}>
+                {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Update Profile
+              </Button>
+            </form>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle>Change Password</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <Key className="h-5 w-5" /> Change Password
+            </CardTitle>
             <CardDescription>Update your account password</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="currentPassword">Current Password</Label>
-              <Input
-                id="currentPassword"
-                type="password"
-                value={passwordData.currentPassword}
-                onChange={(e) => setPasswordData({ ...passwordData, currentPassword: e.target.value })}
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
+          <CardContent>
+            <form onSubmit={updatePassword} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="currentPassword">Current Password</Label>
+                <Input
+                  id="currentPassword"
+                  type="password"
+                  value={passwordData.currentPassword}
+                  onChange={(e) => setPasswordData({ ...passwordData, currentPassword: e.target.value })}
+                  placeholder="••••••••"
+                />
+              </div>
               <div className="space-y-2">
                 <Label htmlFor="newPassword">New Password</Label>
                 <Input
@@ -274,24 +282,24 @@ export function UserProfile() {
                   type="password"
                   value={passwordData.newPassword}
                   onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
+                  placeholder="••••••••"
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="confirmPassword">Confirm Password</Label>
+                <Label htmlFor="confirmPassword">Confirm New Password</Label>
                 <Input
                   id="confirmPassword"
                   type="password"
                   value={passwordData.confirmPassword}
                   onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
+                  placeholder="••••••••"
                 />
               </div>
-            </div>
-
-            <Button onClick={updatePassword} disabled={loading}>
-              {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              <Key className="mr-2 h-4 w-4" />
-              Update Password
-            </Button>
+              <Button type="submit" disabled={loading}>
+                {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Change Password
+              </Button>
+            </form>
           </CardContent>
         </Card>
       </TabsContent>
@@ -299,55 +307,31 @@ export function UserProfile() {
       <TabsContent value="security" className="space-y-6">
         <Card>
           <CardHeader>
-            <CardTitle>Security Settings</CardTitle>
-            <CardDescription>Configure your account security preferences</CardDescription>
+            <CardTitle className="flex items-center gap-2">
+              <Shield className="h-5 w-5" /> Two-Factor Authentication
+            </CardTitle>
+            <CardDescription>Enhance your account security with two-factor authentication</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label>Two-Factor Authentication</Label>
-                <p className="text-sm text-gray-500">Add an extra layer of security to your account</p>
+          <CardContent>
+            <div className="flex items-center justify-between mt-4">
+              <div>
+                <h4 className="font-medium">Email OTP (One-Time Password)</h4>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  Use a 6-digit code sent to your email for extra security
+                </p>
               </div>
-              <Switch
-                checked={settings.twoFactorEnabled}
-                onCheckedChange={(checked: any) => updateSettings({ twoFactorEnabled: checked })}
-              />
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label>Email Notifications</Label>
-                <p className="text-sm text-gray-500">Receive email alerts for account activity</p>
-              </div>
-              <Switch
-                checked={settings.emailNotifications}
-                onCheckedChange={(checked: any) => updateSettings({ emailNotifications: checked })}
-              />
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label>Security Alerts</Label>
-                <p className="text-sm text-gray-500">Get notified of suspicious activity</p>
-              </div>
-              <Switch
-                checked={settings.securityAlerts}
-                onCheckedChange={(checked: any) => updateSettings({ securityAlerts: checked })}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Session Timeout (minutes)</Label>
-              <Input
-                type="number"
-                value={settings.sessionTimeout}
-                onChange={(e) => updateSettings({ sessionTimeout: Number.parseInt(e.target.value) })}
-                min="5"
-                max="120"
-              />
-              <p className="text-sm text-gray-500">Automatically sign out after period of inactivity</p>
+              <Button onClick={enableEmailMfa} disabled={emailMfaEnabled}>
+                {emailMfaEnabled ? "Enabled" : "Enable Email MFA"}
+              </Button>
             </div>
           </CardContent>
+          <CardFooter className="flex flex-col items-start">
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              {emailMfaEnabled
+                ? "Email MFA is enabled. You'll be asked for a code on your next login."
+                : "Enable email-based two-factor authentication for additional security."}
+            </p>
+          </CardFooter>
         </Card>
       </TabsContent>
 

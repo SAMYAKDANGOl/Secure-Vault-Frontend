@@ -1,47 +1,52 @@
 "use client"
 
-import type React from "react"
-
-import { useState } from "react"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Loader2, Shield } from "lucide-react"
 import { useAuth } from "@/contexts/auth-context"
+import { useToast } from "@/hooks/use-toast"
+import { AlertCircle, Key, Loader2 } from "lucide-react"
+import { useState } from "react"
 
 interface TwoFactorModalProps {
   isOpen: boolean
   onClose: () => void
-  onSuccess: () => void
-  tempToken: string
+  tempToken: string | null
+  email: string
 }
 
-export function TwoFactorModal({ isOpen, onClose, onSuccess, tempToken }: TwoFactorModalProps) {
+export function TwoFactorModal({ isOpen, onClose, tempToken, email }: TwoFactorModalProps) {
   const [code, setCode] = useState("")
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState("")
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const { toast } = useToast()
   const { verifyTwoFactor } = useAuth()
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setLoading(true)
-    setError("")
+  const handleVerify = async () => {
+    if (!code || code.length !== 6) {
+      setError("Please enter a valid 6-digit code")
+      return
+    }
+
+    if (!tempToken) {
+      setError("Invalid session. Please try logging in again.")
+      return
+    }
+
+    setIsLoading(true)
+    setError(null)
 
     try {
       await verifyTwoFactor(tempToken, code)
-      onSuccess()
-    } catch (err: any) {
-      setError(err.message || "Invalid verification code")
+      onClose()
+    } catch (error: any) {
+      console.error("MFA verification failed:", error)
+      setError(error.message || "Invalid verification code")
     } finally {
-      setLoading(false)
+      setIsLoading(false)
     }
-  }
-
-  const handleCodeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value.replace(/\D/g, "").slice(0, 6)
-    setCode(value)
   }
 
   return (
@@ -49,44 +54,50 @@ export function TwoFactorModal({ isOpen, onClose, onSuccess, tempToken }: TwoFac
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Shield className="h-5 w-5" />
+            <Key className="h-5 w-5" />
             Two-Factor Authentication
           </DialogTitle>
-          <DialogDescription>Enter the 6-digit verification code sent to your phone number.</DialogDescription>
+          <DialogDescription>
+            Enter the 6-digit code from your Microsoft Authenticator app to verify your identity
+          </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="space-y-4 py-4">
           {error && (
             <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
 
           <div className="space-y-2">
-            <Label htmlFor="code">Verification Code</Label>
+            <Label htmlFor="verificationCode">Verification Code</Label>
             <Input
-              id="code"
-              type="text"
-              placeholder="000000"
+              id="verificationCode"
+              placeholder="123456"
               value={code}
-              onChange={handleCodeChange}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
               maxLength={6}
-              className="text-center text-2xl tracking-widest"
-              disabled={loading}
+              inputMode="numeric"
               autoComplete="one-time-code"
+              className="text-center text-lg tracking-widest"
             />
           </div>
 
-          <div className="flex gap-2">
-            <Button type="button" variant="outline" onClick={onClose} className="flex-1">
+          <div className="text-center text-sm text-gray-500 dark:text-gray-400">
+            Lost your device? Use one of your backup recovery codes instead.
+          </div>
+
+          <div className="flex justify-between">
+            <Button variant="outline" onClick={onClose} disabled={isLoading}>
               Cancel
             </Button>
-            <Button type="submit" disabled={loading || code.length !== 6} className="flex-1">
-              {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            <Button onClick={handleVerify} disabled={isLoading || code.length !== 6}>
+              {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Key className="mr-2 h-4 w-4" />}
               Verify
             </Button>
           </div>
-        </form>
+        </div>
       </DialogContent>
     </Dialog>
   )
